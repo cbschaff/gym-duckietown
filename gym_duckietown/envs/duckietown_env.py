@@ -5,10 +5,6 @@ import math
 import numpy
 import zmq
 
-import pyglet
-from pyglet.image import ImageData
-from pyglet.gl import glPushMatrix, glPopMatrix, glScalef, glTranslatef
-
 # For Python 3 compatibility
 import sys
 if sys.version_info > (3,):
@@ -69,14 +65,6 @@ class DuckietownEnv(gym.Env):
 
         # For rendering
         self.window = None
-
-        # For displaying text
-        self.textLabel = pyglet.text.Label(
-            font_name="Arial",
-            font_size=14,
-            x = 5,
-            y = WINDOW_SIZE - 19
-        )
 
         # Last received state data
         self.stateData = None
@@ -172,6 +160,17 @@ class DuckietownEnv(gym.Env):
             return
 
         if self.window is None:
+            import pyglet
+            from pyglet.image import ImageData
+            from pyglet.gl import glPushMatrix, glPopMatrix, glScalef, glTranslatef
+    
+            # For displaying text
+            self.textLabel = pyglet.text.Label(
+                font_name="Arial",
+                font_size=14,
+                x = 5,
+                y = WINDOW_SIZE - 19
+            )
             self.window = pyglet.window.Window(width=WINDOW_SIZE, height=WINDOW_SIZE)
 
         self.window.clear()
