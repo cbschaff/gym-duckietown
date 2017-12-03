@@ -143,8 +143,7 @@ class DuckietownEnv(gym.Env):
         x1, y1, z1 = self.stateData['position']
         dx = x1 - x0
         dy = abs(y1 - 1.12) - abs(y0 - 1.12)
-        reward = 4 * -dx - 4 * dy
-        print(reward)
+        reward = 4 * -dx - 1 * dy
 
         # If past the maximum step count, stop the episode
         done = self.stepCount >= self.maxSteps or abs(y1 - 1.12) > .3 or x1 < .1
@@ -152,6 +151,10 @@ class DuckietownEnv(gym.Env):
         return self.img.transpose(), reward, done, self.stateData
 
     def _render(self, mode='human', close=False):
+        import pyglet
+        from pyglet.image import ImageData
+        from pyglet.gl import glPushMatrix, glPopMatrix, glScalef, glTranslatef
+
         if mode == 'rgb_array':
             return self.img
 
@@ -161,10 +164,6 @@ class DuckietownEnv(gym.Env):
             return
 
         if self.window is None:
-            import pyglet
-            from pyglet.image import ImageData
-            from pyglet.gl import glPushMatrix, glPopMatrix, glScalef, glTranslatef
-    
             # For displaying text
             self.textLabel = pyglet.text.Label(
                 font_name="Arial",
