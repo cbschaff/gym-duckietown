@@ -143,6 +143,8 @@ class DuckietownEnv(gym.Env):
         x1, y1, z1 = self.stateData['position']
         dx = x1 - x0
         reward = 4.0 * -dx - 0.1 * abs(y1 - 1.12) + .03
+        if x1 < .1:
+            reward += 2
 
         # If past the maximum step count, stop the episode
         done = self.stepCount >= self.maxSteps or abs(y1 - 1.12) > .3 or x1 < .1
