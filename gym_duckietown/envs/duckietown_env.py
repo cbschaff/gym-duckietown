@@ -61,7 +61,7 @@ class DuckietownEnv(gym.Env):
         self.reward_range = (-1, 1000)
 
         # Environment configuration
-        self.maxSteps = 120
+        self.maxSteps = 1000
 
         # For rendering
         self.window = None
@@ -147,6 +147,13 @@ class DuckietownEnv(gym.Env):
 
         # If past the maximum step count, stop the episode
         done = self.stepCount >= self.maxSteps or abs(y1 - 1.12) > .3 or x1 < .1
+        if done:
+            if abs(y1 - 1.12) > .3:
+                print("DONE:  Y DIST")
+            if x1 < .1:
+                print("DONE:  X DIST")
+            else:
+                print("DONE:  STEPS")
 
         return self.img.transpose(), reward, done, self.stateData
 
