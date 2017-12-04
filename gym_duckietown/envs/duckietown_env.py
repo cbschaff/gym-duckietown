@@ -149,7 +149,7 @@ class DuckietownEnv(gym.Env):
         if done:
             if abs(y1 - 1.12) > .3:
                 print("DONE:  Y DIST")
-            if x1 < .1:
+            elif x1 < .1:
                 print("DONE:  X DIST")
             else:
                 print("DONE:  STEPS")
