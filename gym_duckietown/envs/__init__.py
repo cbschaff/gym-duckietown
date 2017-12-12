@@ -1,1 +1,2 @@
 from gym_duckietown.envs.duckietown_env import DuckietownEnv
+from gym_duckietown.envs.duckietown_env_v1 import DuckietownEnv_v1

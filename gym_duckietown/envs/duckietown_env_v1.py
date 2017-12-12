@@ -2,14 +2,8 @@ import gym
 from gym import error, spaces, utils
 from gym.utils import seeding
 import math
-import time
-import subprocess
 import numpy
 import zmq
-
-import pyglet
-from pyglet.image import ImageData
-from pyglet.gl import glPushMatrix, glPopMatrix, glScalef, glTranslatef
 
 # For Python 3 compatibility
 import sys
@@ -19,6 +13,9 @@ if sys.version_info > (3,):
 # Rendering window size
 WINDOW_SIZE = 512
 
+# Port to connect to on the server
+SERVER_PORT = 7777
+
 def recvArray(socket):
     """Receive a numpy array over zmq"""
     md = socket.recv_json()
@@ -27,28 +24,7 @@ def recvArray(socket):
     A = numpy.frombuffer(buf, dtype=md['dtype'])
     return A.reshape(md['shape'])
 
-class DiscreteEnv(gym.ActionWrapper):
-    """
-    Duckietown environment with discrete actions (left, right, forward)
-    instead of continuous control
-    """
-
-    def __init__(self, env):
-        super(DiscreteEnv, self).__init__(env)
-
-        self.action_space = spaces.Discrete(3)
-
-    def _action(self, action):
-        if action == 0:
-            return [-1, 1]
-        elif action == 1:
-            return [1, -1]
-        elif action == 2:
-            return [1, 1]
-        else:
-            assert False, "unknown action"
-
-class DuckietownEnv(gym.Env):
+class DuckietownEnv_v1(gym.Env):
     """
     OpenAI gym environment wrapper for the Duckietown simulation.
     Connects to ROS/Gazebo through ZeroMQ
@@ -59,9 +35,6 @@ class DuckietownEnv(gym.Env):
         'video.frames_per_second' : 30
     }
 
-    # Port to connect to on the server
-    SERVER_PORT = 7777
-
     # Camera image size
     CAMERA_WIDTH = 64
     CAMERA_HEIGHT = 64
@@ -69,11 +42,7 @@ class DuckietownEnv(gym.Env):
     # Camera image shape
     IMG_SHAPE = (3, CAMERA_WIDTH, CAMERA_HEIGHT)
 
-    def __init__(
-        self,
-        serverAddr="localhost",
-        serverPort=SERVER_PORT,
-        startContainer=False):
+    def __init__(self, serverAddr="localhost", serverPort=SERVER_PORT):
 
         # Two-tuple of wheel torques, each in the range [-1, 1]
         self.action_space = spaces.Box(
@@ -86,78 +55,22 @@ class DuckietownEnv(gym.Env):
         self.observation_space = spaces.Box(
             low=0,
             high=255,
-            shape=DuckietownEnv.IMG_SHAPE
+            shape=DuckietownEnv_v1.IMG_SHAPE
         )
 
         self.reward_range = (-1, 1000)
 
         # Environment configuration
-        self.maxSteps = 120
+        self.maxSteps = 1000
 
         # For rendering
         self.window = None
-
-        # For displaying text
-        self.textLabel = pyglet.text.Label(
-            font_name="Arial",
-            font_size=14,
-            x = 5,
-            y = WINDOW_SIZE - 19
-        )
 
         # Last received state data
         self.stateData = None
 
         # Last received image
         self.img = None
-
-        # If a docker image should be started
-        if startContainer:
-            self.docker_name = 'duckietown_%s' % serverPort
-
-            # Kill old containers, if running
-            subprocess.call(
-                ['docker', 'rm', '-f', self.docker_name],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-
-            print('starting docker container %s' % self.docker_name)
-            subprocess.check_call([
-                'docker', 'run', '-d',
-                '-p', '%s:7777' % serverPort,
-                '--name', self.docker_name,
-                '-it', 'yanjundream/duckietown_simulator'
-            ])
-
-            print('%s starting gazebo...' % self.docker_name)
-            pipe = subprocess.Popen([
-                'docker', 'exec', self.docker_name,
-                'bash', '-c',
-                'cd / && source ./start.sh && ./run_gazebo.sh'
-            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-            while True:
-                line = pipe.stdout.readline().decode('utf-8').lower().rstrip()
-                #if not line == "":
-                #    print(line)
-
-                if "advertise odom" in line:
-                    pipe.stdout.close()
-                    break
-
-                assert "error" not in line
-
-            print('%s starting gym server node...' % self.docker_name)
-            subprocess.check_call([
-                'docker', 'exec', '-d', self.docker_name,
-                'bash', '-c',
-                'cd / && source ./start.sh && python2 ./gym-gazebo-server.py'
-            ])
-
-            time.sleep(2)
-
-            print('%s connecting to gym server node...' % self.docker_name)
 
         # Connect to the Gym bridge ROS node
         context = zmq.Context()
@@ -168,17 +81,18 @@ class DuckietownEnv(gym.Env):
         self.reset()
         self.seed()
 
-    def _close(self):
-        if hasattr(self, 'docker_name'):
-            print('killing docker container %s' % self.docker_name)
-            subprocess.call(['docker', 'rm', '-f', self.docker_name])
-
     def _reset(self):
         # Step count since episode start
         self.stepCount = 0
 
         # Tell the server to reset the simulation
-        self.socket.send_json({ "command":"reset" })
+        x = 1
+        y = numpy.random.uniform(0.9,1.1)
+        theta = numpy.random.uniform(3 * numpy.pi / 4, 5 * numpy.pi / 4)
+        self.socket.send_json({
+            "command":"reset",
+            "values":[float(x),float(y),float(theta)]
+         })
 
         # Receive state data (position, etc)
         self.stateData = self.socket.recv_json()
@@ -202,6 +116,8 @@ class DuckietownEnv(gym.Env):
         return [seed]
 
     def _step(self, action):
+        assert self.observation_space.shape
+
         self.stepCount += 1
 
         # Send the action to the server
@@ -219,38 +135,26 @@ class DuckietownEnv(gym.Env):
         # Receive a camera image from the server
         self.img = recvArray(self.socket)
 
-        x, y, z = self.stateData['position']
+        # Currently, robot starts at (1, 1)
+        # And is facing the negative x direction
+        # Moving forward decreases x
+        # y should stay as close to 1.12 as possible (in the right lane)
+        x0, y0, z0 = self.prevState['position']
+        x1, y1, z1 = self.stateData['position']
+        dx = x1 - x0
+        reward = 4.0 * -dx - 0.1 * abs(y1 - 1.12) + .03
+        if x1 < .1:
+            reward += 2
 
-        # End of lane, to the right
-        #targetPos = (0.0, 1.12)
-
-        # End of lane, centered on yellow markers
-        targetPos = (0.0, 1.00)
-
-        dx = x - targetPos[0]
-        dy = y - targetPos[1]
-
-        dist = abs(dx) + abs(dy)
-        reward = -dist
-
-        #print('x=%.2f, y=%.2f' % (x, y))
-        #print('  d=%.2f' % dist)
-        #print('  a=%s' % str(action))
-
-        done = False
-
-        # If the objective is reached
-        if dist <= 0.05:
-            reward = 1000
-            done = True
-
-        # If the maximum time step count is reached
-        if self.stepCount >= self.maxSteps:
-            done = True
-
+        # If past the maximum step count, stop the episode
+        done = self.stepCount >= self.maxSteps or abs(y1 - 1.12) > .3 or x1 < .1
         return self.img.transpose(), reward, done, self.stateData
 
     def _render(self, mode='human', close=False):
+        import pyglet
+        from pyglet.image import ImageData
+        from pyglet.gl import glPushMatrix, glPopMatrix, glScalef, glTranslatef
+
         if mode == 'rgb_array':
             return self.img
 
@@ -260,6 +164,13 @@ class DuckietownEnv(gym.Env):
             return
 
         if self.window is None:
+            # For displaying text
+            self.textLabel = pyglet.text.Label(
+                font_name="Arial",
+                font_size=14,
+                x = 5,
+                y = WINDOW_SIZE - 19
+            )
             self.window = pyglet.window.Window(width=WINDOW_SIZE, height=WINDOW_SIZE)
 
         self.window.clear()
